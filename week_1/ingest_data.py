@@ -18,28 +18,31 @@ def main(params):
     
     # Download the file from the URL
     response = requests.get(url)
+    response.raise_for_status()  # Check for network errors
+    
     file_extension = os.path.splitext(url)[-1].lower()
     
     if file_extension == '.csv':
         # If the file is in CSV format
-        with open('output.csv', 'wb') as f_out:
-            f_out.write(response.content)
+        output_file = 'output.csv'
     elif file_extension == '.gz':
         # If the file is gzip-compressed
-        with gzip.GzipFile(fileobj=BytesIO(response.content), mode='rb') as f_in:
-            with open('output.csv', 'wb') as f_out:
-                f_out.write(f_in.read())
+        output_file = 'output.csv.gz'
     else:
         raise ValueError("Unsupported file format")
     
+    with open(output_file, 'wb') as f_out:
+        if file_extension == '.gz':
+            with gzip.GzipFile(fileobj=BytesIO(response.content), mode='rb') as f_in:
+                f_out.write(f_in.read())
+        else:
+            f_out.write(response.content)
+    
     # Create database connection
     engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{db}')
-
-    # Read the CSV file in chunks
-    df_iter = pd.read_csv('output.csv', iterator=True, chunksize=100000)
-
-    # Iterate over chunks and insert into PostgreSQL table
-    for df_chunk in df_iter:
+    
+    # Read the CSV file in chunks and insert into PostgreSQL table
+    for df_chunk in pd.read_csv(output_file, iterator=True, chunksize=100000):
         df_chunk.to_sql(name=table_name, con=engine, if_exists='append', index=False)
     
     print("Data ingestion complete")
